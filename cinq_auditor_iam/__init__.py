@@ -62,25 +62,29 @@ class IAMAuditor(BaseAuditor):
         )}
 
         for account in accounts:
-            if not account.ad_group_base:
-                self.log.info('Account {} does not have AD Group Base set, skipping'.format(account.account_name))
-                continue
+            try:
+                if not account.ad_group_base:
+                    self.log.info('Account {} does not have AD Group Base set, skipping'.format(account.account_name))
+                    continue
 
-            # List all policies and roles from AWS, and generate a list of policies from Git
-            sess = get_aws_session(account)
-            iam = sess.client('iam')
+                # List all policies and roles from AWS, and generate a list of policies from Git
+                sess = get_aws_session(account)
+                iam = sess.client('iam')
 
-            aws_roles = {x['RoleName']: x for x in self.get_roles(iam)}
-            aws_policies = {x['PolicyName']: x for x in self.get_policies_from_aws(iam)}
+                aws_roles = {x['RoleName']: x for x in self.get_roles(iam)}
+                aws_policies = {x['PolicyName']: x for x in self.get_policies_from_aws(iam)}
 
-            account_policies = copy.deepcopy(self.git_policies['GLOBAL'])
-
-            if account.account_name in self.git_policies:
-                for role in self.git_policies[account.account_name]:
-                    account_policies.update(self.git_policies[account.account_name][role])
-
-            aws_policies.update(self.check_policies(account, account_policies, aws_policies))
-            self.check_roles(account, aws_policies, aws_roles)
+                account_policies = copy.deepcopy(self.git_policies['GLOBAL'])
+                
+                if account.account_name in self.git_policies:
+                    for role in self.git_policies[account.account_name]:
+                        account_policies.update(self.git_policies[account.account_name][role])
+                        
+                aws_policies.update(self.check_policies(account, account_policies, aws_policies))
+                self.check_roles(account, aws_policies, aws_roles)
+            except Exception as exception:
+                self.log.info('Unable to process account {}. Unhandled Exception {}'.format(
+                    account.account_name, exception))
 
     @retry
     def check_policies(self, account, account_policies, aws_policies):
