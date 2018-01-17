@@ -75,11 +75,11 @@ class IAMAuditor(BaseAuditor):
                 aws_policies = {x['PolicyName']: x for x in self.get_policies_from_aws(iam)}
 
                 account_policies = copy.deepcopy(self.git_policies['GLOBAL'])
-                
+
                 if account.account_name in self.git_policies:
                     for role in self.git_policies[account.account_name]:
                         account_policies.update(self.git_policies[account.account_name][role])
-                        
+
                 aws_policies.update(self.check_policies(account, account_policies, aws_policies))
                 self.check_roles(account, aws_policies, aws_roles)
             except Exception as exception:
