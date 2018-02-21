@@ -8,6 +8,7 @@ from tempfile import mkdtemp
 from cloud_inquisitor import get_aws_session
 from cloud_inquisitor.config import dbconfig, ConfigOption
 from cloud_inquisitor.constants import NS_AUDITOR_IAM, AccountTypes
+from cloud_inquisitor.database import db
 from cloud_inquisitor.plugins import BaseAuditor
 from cloud_inquisitor.schema import Account, AuditLog
 from cloud_inquisitor.wrappers import retry
@@ -49,7 +50,10 @@ class IAMAuditor(BaseAuditor):
         Returns:
             `None`
         """
-        accounts = Account.query.filter(Account.enabled == 1, Account.account_type == AccountTypes.AWS).all()
+        accounts = db.Account.find(
+            Account.enabled == 1,
+            Account.account_type == AccountTypes.AWS
+        )
         if not accounts:
             return
 
