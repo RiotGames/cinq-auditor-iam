@@ -22,7 +22,6 @@ class IAMAuditor(BaseAuditor):
     ns = NS_AUDITOR_IAM
     interval = dbconfig.get('interval', ns, 30)
     start_delay = 0
-    enabled = dbconfig.get('enabled', ns, False)
     manage_roles = dbconfig.get('manage_roles', ns, True)
     git_policies = None
     cfg_roles = None
