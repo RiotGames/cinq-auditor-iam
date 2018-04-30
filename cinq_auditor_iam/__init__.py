@@ -36,7 +36,8 @@ class IAMAuditor(BaseAuditor):
         ConfigOption('git_auth_token', 'CHANGE ME', 'string', 'API Auth token for Github'),
         ConfigOption('git_server', 'CHANGE ME', 'string', 'Address of the Github server'),
         ConfigOption('git_repo', 'CHANGE ME', 'string', 'Name of Github repo'),
-        ConfigOption('git_no_ssl_verify', False, 'bool', 'Disable SSL verification of Github server')
+        ConfigOption('git_no_ssl_verify', False, 'bool', 'Disable SSL verification of Github server'),
+        ConfigOption('role_timeout', 8, 'int', 'AssumeRole timeout in hours')
     )
 
     def run(self, *args, **kwargs):
@@ -53,13 +54,36 @@ class IAMAuditor(BaseAuditor):
             Account.enabled == 1,
             Account.account_type == AccountTypes.AWS
         )
+        self.manage_policies(accounts)
+        self.update_role_timeout(accounts)
+
+    def update_role_timeout(self, accounts):
+        if not accounts:
+            return
+        timeout_in_seconds = self.dbconfig.get('role_timeout_in_hours', self.ns, 8) * 60 * 60
+        for account in accounts:
+            sess = get_aws_session(account)
+            iam = sess.client('iam')
+            try:
+                role_list = iam.list_roles()['Roles']
+                for role in role_list:
+                    self.log.info('Attempting to adjust MaxSessionDuration for role {} in account {}'.format(role['RoleName'], account.account_name))
+                    if 'service-role' not in role["Arn"]:
+                        iam.update_role(RoleName=role['RoleName'], MaxSessionDuration=timeout_in_seconds)
+                        self.log.info('Adjusted MaxSessionDuration for role {} in account {} to {} seconds'.format(role['RoleName'], account.account_name, timeout_in_seconds))
+                    else:
+                        self.log.info('Role {} in account {} is a service linked role and cannot be modified.'.format(role['RoleName'], account.account_name))
+            except Exception as error:
+                self.log.error('Unexpected error ocurred: {}'.format(error))
+
+    def manage_policies(self, accounts):
         if not accounts:
             return
 
         self.git_policies = self.get_policies_from_git()
         self.manage_roles = self.dbconfig.get('manage_roles', self.ns, True)
         self.cfg_roles = self.dbconfig.get('roles', self.ns)
-        self.aws_managed_policies = {x['PolicyName']: x for x in self.get_policies_from_aws(
+        self.aws_managed_policies = {policy['PolicyName']: policy for policy in self.get_policies_from_aws(
             get_aws_session(accounts[0]).client('iam'),
             'AWS'
         )}
@@ -74,8 +98,8 @@ class IAMAuditor(BaseAuditor):
                 sess = get_aws_session(account)
                 iam = sess.client('iam')
 
-                aws_roles = {x['RoleName']: x for x in self.get_roles(iam)}
-                aws_policies = {x['PolicyName']: x for x in self.get_policies_from_aws(iam)}
+                aws_roles = {role['RoleName']: role for role in self.get_roles(iam)}
+                aws_policies = {policy['PolicyName']: policy for policy in self.get_policies_from_aws(iam)}
 
                 account_policies = copy.deepcopy(self.git_policies['GLOBAL'])
 
