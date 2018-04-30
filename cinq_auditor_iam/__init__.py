@@ -55,9 +55,9 @@ class IAMAuditor(BaseAuditor):
             Account.account_type == AccountTypes.AWS
         )
         self.manage_policies(accounts)
-        self.update_role_timeout(accounts)
+        self.update_role_timeouts(accounts)
 
-    def update_role_timeout(self, accounts):
+    def update_role_timeouts(self, accounts):
         if not accounts:
             return
         timeout_in_seconds = self.dbconfig.get('role_timeout_in_hours', self.ns, 8) * 60 * 60
