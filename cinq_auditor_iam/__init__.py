@@ -75,11 +75,10 @@ class IAMAuditor(BaseAuditor):
                                 .format(role['RoleName'], account.account_name, timeout_in_seconds)
                             )
                     except Exception as error:
-                        self.log.error(
+                        self.log.exception(
                             'Unable to adjust MaxSessionDuration for role {} in account {}'
                             .format(role['RoleName'], account.account_name)
                         )
-                        self.log.error('Unexpected error ocurred: {}'.format(error))
                 else:
                     self.log.info(
                         'Role {} in account {} is a service linked role and cannot be modified.'
