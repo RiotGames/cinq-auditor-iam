@@ -6,6 +6,7 @@ build
 .vagrant
 .eggs
 *.egg-info
+__pycache__
 
 # Installer logs
 pip-log.txt

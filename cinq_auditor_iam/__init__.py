@@ -64,17 +64,27 @@ class IAMAuditor(BaseAuditor):
         for account in accounts:
             sess = get_aws_session(account)
             iam = sess.client('iam')
-            try:
-                role_list = iam.list_roles()['Roles']
-                for role in role_list:
-                    self.log.info('Attempting to adjust MaxSessionDuration for role {} in account {}'.format(role['RoleName'], account.account_name))
-                    if 'service-role' not in role["Arn"]:
-                        iam.update_role(RoleName=role['RoleName'], MaxSessionDuration=timeout_in_seconds)
-                        self.log.info('Adjusted MaxSessionDuration for role {} in account {} to {} seconds'.format(role['RoleName'], account.account_name, timeout_in_seconds))
-                    else:
-                        self.log.info('Role {} in account {} is a service linked role and cannot be modified.'.format(role['RoleName'], account.account_name))
-            except Exception as error:
-                self.log.error('Unexpected error ocurred: {}'.format(error))
+            role_list = iam.list_roles()['Roles']
+            for role in role_list:
+                if 'service-role' not in role['Arn']:
+                    try:
+                        if role['MaxSessionDuration'] != timeout_in_seconds:
+                            iam.update_role(RoleName=role['RoleName'], MaxSessionDuration=timeout_in_seconds)
+                            self.log.info(
+                                'Adjusted MaxSessionDuration for role {} in account {} to {} seconds'
+                                .format(role['RoleName'], account.account_name, timeout_in_seconds)
+                            )
+                    except Exception as error:
+                        self.log.error(
+                            'Unable to adjust MaxSessionDuration for role {} in account {}'
+                            .format(role['RoleName'], account.account_name)
+                        )
+                        self.log.error('Unexpected error ocurred: {}'.format(error))
+                else:
+                    self.log.info(
+                        'Role {} in account {} is a service linked role and cannot be modified.'
+                        .format(role['RoleName'], account.account_name)
+                    )
 
     def manage_policies(self, accounts):
         if not accounts:
