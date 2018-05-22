@@ -5,12 +5,14 @@ import re
 import shutil
 from tempfile import mkdtemp
 
+from botocore.exceptions import ClientError
 from cloud_inquisitor import get_aws_session
 from cloud_inquisitor.config import dbconfig, ConfigOption
 from cloud_inquisitor.constants import NS_AUDITOR_IAM, AccountTypes
 from cloud_inquisitor.database import db
+from cloud_inquisitor.log import auditlog
 from cloud_inquisitor.plugins import BaseAuditor
-from cloud_inquisitor.schema import Account, AuditLog
+from cloud_inquisitor.schema import Account
 from cloud_inquisitor.wrappers import retry
 from git import Repo
 
@@ -74,7 +76,7 @@ class IAMAuditor(BaseAuditor):
                                 'Adjusted MaxSessionDuration for role {} in account {} to {} seconds'
                                 .format(role['RoleName'], account.account_name, timeout_in_seconds)
                             )
-                    except Exception as error:
+                    except ClientError:
                         self.log.exception(
                             'Unable to adjust MaxSessionDuration for role {} in account {}'
                             .format(role['RoleName'], account.account_name)
@@ -150,7 +152,7 @@ class IAMAuditor(BaseAuditor):
             # Using re.sub instead of format since format breaks on the curly braces of json
             gitpol = json.loads(
                 re.sub(
-                    r'\{AD_Group\}',
+                    r'{AD_Group}',
                     account.ad_group_base or account.account_name,
                     account_policy
                 )
@@ -230,7 +232,8 @@ class IAMAuditor(BaseAuditor):
 
                 if self.dbconfig.get('delete_inline_policies', self.ns, False) and self.manage_roles:
                     for policy in aws_role_inline_policies:
-                        AuditLog.log(
+                        iam.delete_role_policy(RoleName=roleName, PolicyName=policy)
+                        auditlog(
                             event='iam.check_roles.delete_inline_role_policy',
                             actor=self.ns,
                             data={
@@ -239,7 +242,6 @@ class IAMAuditor(BaseAuditor):
                                 'policy': policy
                             }
                         )
-                        iam.delete_role_policy(RoleName=roleName, PolicyName=policy)
 
             if missing_policies:
                 self.log.info('IAM Role {} on {} is missing the following policies: {}'.format(
@@ -249,7 +251,8 @@ class IAMAuditor(BaseAuditor):
                 ))
                 if self.manage_roles:
                     for policy in missing_policies:
-                        AuditLog.log(
+                        iam.attach_role_policy(RoleName=roleName, PolicyArn=aws_policies[policy]['Arn'])
+                        auditlog(
                             event='iam.check_roles.attach_role_policy',
                             actor=self.ns,
                             data={
@@ -258,7 +261,6 @@ class IAMAuditor(BaseAuditor):
                                 'policyArn': aws_policies[policy]['Arn']
                             }
                         )
-                        iam.attach_role_policy(RoleName=roleName, PolicyArn=aws_policies[policy]['Arn'])
 
             if extra_policies:
                 self.log.info('IAM Role {} on {} has the following extra policies applied: {}'.format(
@@ -273,6 +275,7 @@ class IAMAuditor(BaseAuditor):
                     elif policy in self.aws_managed_policies:
                         polArn = self.aws_managed_policies[policy]['Arn']
                     else:
+                        polArn = None
                         self.log.info('IAM Role {} on {} has an unknown policy attached: {}'.format(
                             roleName,
                             account.account_name,
@@ -280,7 +283,8 @@ class IAMAuditor(BaseAuditor):
                         ))
 
                     if self.manage_roles and polArn:
-                        AuditLog.log(
+                        iam.detach_role_policy(RoleName=roleName, PolicyArn=polArn)
+                        auditlog(
                             event='iam.check_roles.detach_role_policy',
                             actor=self.ns,
                             data={
@@ -289,7 +293,6 @@ class IAMAuditor(BaseAuditor):
                                 'policyArn': polArn
                             }
                         )
-                        iam.detach_role_policy(RoleName=roleName, PolicyArn=polArn)
 
     def get_policies_from_git(self):
         """Retrieve policies from the Git repo. Returns a dictionary containing all the roles and policies
@@ -416,15 +419,6 @@ class IAMAuditor(BaseAuditor):
         Returns:
             `dict`
         """
-        AuditLog.log(
-            event='iam.check_roles.create_policy',
-            actor=self.ns,
-            data={
-                'account': account.account_name,
-                'policyName': name,
-                'policyArn': arn
-            }
-        )
         if not arn and not name:
             raise ValueError('create_policy must be called with either arn or name in the argument list')
 
@@ -440,7 +434,8 @@ class IAMAuditor(BaseAuditor):
                 ) if not x['IsDefaultVersion']][0]
 
                 self.log.info('Deleting oldest IAM Policy version {}/{}'.format(arn, version['VersionId']))
-                AuditLog.log(
+                client.delete_policy_version(PolicyArn=arn, VersionId=version['VersionId'])
+                auditlog(
                     event='iam.check_roles.delete_policy_version',
                     actor=self.ns,
                     data={
@@ -450,15 +445,25 @@ class IAMAuditor(BaseAuditor):
                         'versionId': version['VersionId']
                     }
                 )
-                client.delete_policy_version(PolicyArn=arn, VersionId=version['VersionId'])
 
-            return client.create_policy_version(
+            res = client.create_policy_version(
                 PolicyArn=arn,
                 PolicyDocument=document,
                 SetAsDefault=True
             )
         else:
-            return client.create_policy(
+            res = client.create_policy(
                 PolicyName=name,
                 PolicyDocument=document
             )
+
+        auditlog(
+            event='iam.check_roles.create_policy',
+            actor=self.ns,
+            data={
+                'account': account.account_name,
+                'policyName': name,
+                'policyArn': arn
+            }
+        )
+        return res
