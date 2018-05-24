@@ -62,11 +62,12 @@ class IAMAuditor(BaseAuditor):
     def update_role_timeouts(self, accounts):
         if not accounts:
             return
+
         timeout_in_seconds = self.dbconfig.get('role_timeout_in_hours', self.ns, 8) * 60 * 60
         for account in accounts:
             sess = get_aws_session(account)
             iam = sess.client('iam')
-            role_list = iam.list_roles()['Roles']
+            role_list = self.get_roles(iam)
             for role in role_list:
                 if 'service-role' not in role['Arn']:
                     try:
