@@ -2,6 +2,7 @@
 cinq-auditor-iam
 ****************
 
+Please open issues in the `Cloud-Inquisitor <https://github.com/RiotGames/cloud-inquisitor/issues/new?labels=cinq-auditor-iam>`_ repository
 
 ===========
 Description
