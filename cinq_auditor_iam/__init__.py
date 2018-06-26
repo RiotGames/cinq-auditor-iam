@@ -210,15 +210,19 @@ class IAMAuditor(BaseAuditor):
                 if role in account_roles:
                     account_roles[role]['policies'] += list(self.git_policies[account.account_name][role].keys())
 
-        for roleName, data in list(account_roles.items()):
-            if roleName not in aws_roles:
-                self.log.info('IAM Role {} is missing on {}'.format(roleName, account.account_name))
-                continue
+        for role_name, data in list(account_roles.items()):
+            if role_name not in aws_roles:
+                iam.create_role(
+                    Path='/',
+                    RoleName=role_name,
+                    AssumeRolePolicyDocument=json.dumps(data['trust'], indent=4)
+                )
+                self.log.info('Created role {}/{}'.format(account.account_name, role_name))
 
             aws_role_policies = [x['PolicyName'] for x in iam.list_attached_role_policies(
-                RoleName=roleName)['AttachedPolicies']
+                RoleName=role_name)['AttachedPolicies']
             ]
-            aws_role_inline_policies = iam.list_role_policies(RoleName=roleName)['PolicyNames']
+            aws_role_inline_policies = iam.list_role_policies(RoleName=role_name)['PolicyNames']
             cfg_role_policies = data['policies']
 
             missing_policies = list(set(cfg_role_policies) - set(aws_role_policies))
@@ -226,46 +230,46 @@ class IAMAuditor(BaseAuditor):
 
             if aws_role_inline_policies:
                 self.log.info('IAM Role {} on {} has the following inline policies: {}'.format(
-                    roleName,
+                    role_name,
                     account.account_name,
                     ', '.join(aws_role_inline_policies)
                 ))
 
                 if self.dbconfig.get('delete_inline_policies', self.ns, False) and self.manage_roles:
                     for policy in aws_role_inline_policies:
-                        iam.delete_role_policy(RoleName=roleName, PolicyName=policy)
+                        iam.delete_role_policy(RoleName=role_name, PolicyName=policy)
                         auditlog(
                             event='iam.check_roles.delete_inline_role_policy',
                             actor=self.ns,
                             data={
                                 'account': account.account_name,
-                                'roleName': roleName,
+                                'roleName': role_name,
                                 'policy': policy
                             }
                         )
 
             if missing_policies:
                 self.log.info('IAM Role {} on {} is missing the following policies: {}'.format(
-                    roleName,
+                    role_name,
                     account.account_name,
                     ', '.join(missing_policies)
                 ))
                 if self.manage_roles:
                     for policy in missing_policies:
-                        iam.attach_role_policy(RoleName=roleName, PolicyArn=aws_policies[policy]['Arn'])
+                        iam.attach_role_policy(RoleName=role_name, PolicyArn=aws_policies[policy]['Arn'])
                         auditlog(
                             event='iam.check_roles.attach_role_policy',
                             actor=self.ns,
                             data={
                                 'account': account.account_name,
-                                'roleName': roleName,
+                                'roleName': role_name,
                                 'policyArn': aws_policies[policy]['Arn']
                             }
                         )
 
             if extra_policies:
                 self.log.info('IAM Role {} on {} has the following extra policies applied: {}'.format(
-                    roleName,
+                    role_name,
                     account.account_name,
                     ', '.join(extra_policies)
                 ))
@@ -278,19 +282,19 @@ class IAMAuditor(BaseAuditor):
                     else:
                         polArn = None
                         self.log.info('IAM Role {} on {} has an unknown policy attached: {}'.format(
-                            roleName,
+                            role_name,
                             account.account_name,
                             policy
                         ))
 
                     if self.manage_roles and polArn:
-                        iam.detach_role_policy(RoleName=roleName, PolicyArn=polArn)
+                        iam.detach_role_policy(RoleName=role_name, PolicyArn=polArn)
                         auditlog(
                             event='iam.check_roles.detach_role_policy',
                             actor=self.ns,
                             data={
                                 'account': account.account_name,
-                                'roleName': roleName,
+                                'roleName': role_name,
                                 'policyArn': polArn
                             }
                         )
