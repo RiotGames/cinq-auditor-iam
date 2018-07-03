@@ -57,36 +57,6 @@ class IAMAuditor(BaseAuditor):
             Account.account_type == AccountTypes.AWS
         )
         self.manage_policies(accounts)
-        self.update_role_timeouts(accounts)
-
-    def update_role_timeouts(self, accounts):
-        if not accounts:
-            return
-
-        timeout_in_seconds = self.dbconfig.get('role_timeout_in_hours', self.ns, 8) * 60 * 60
-        for account in accounts:
-            sess = get_aws_session(account)
-            iam = sess.client('iam')
-            role_list = self.get_roles(iam)
-            for role in role_list:
-                if 'service-role' not in role['Arn']:
-                    try:
-                        if role['MaxSessionDuration'] != timeout_in_seconds:
-                            iam.update_role(RoleName=role['RoleName'], MaxSessionDuration=timeout_in_seconds)
-                            self.log.info(
-                                'Adjusted MaxSessionDuration for role {} in account {} to {} seconds'
-                                .format(role['RoleName'], account.account_name, timeout_in_seconds)
-                            )
-                    except ClientError:
-                        self.log.exception(
-                            'Unable to adjust MaxSessionDuration for role {} in account {}'
-                            .format(role['RoleName'], account.account_name)
-                        )
-                else:
-                    self.log.info(
-                        'Role {} in account {} is a service linked role and cannot be modified.'
-                        .format(role['RoleName'], account.account_name)
-                    )
 
     def manage_policies(self, accounts):
         if not accounts:
@@ -200,6 +170,7 @@ class IAMAuditor(BaseAuditor):
             `None`
         """
         self.log.debug('Checking roles for {}'.format(account.account_name))
+        max_session_duration = self.dbconfig.get('role_timeout_in_hours', self.ns, 8) * 60 * 60
         sess = get_aws_session(account)
         iam = sess.client('iam')
 
@@ -215,9 +186,27 @@ class IAMAuditor(BaseAuditor):
                 iam.create_role(
                     Path='/',
                     RoleName=role_name,
-                    AssumeRolePolicyDocument=json.dumps(data['trust'], indent=4)
+                    AssumeRolePolicyDocument=json.dumps(data['trust'], indent=4),
+                    MaxSessionDuration=max_session_duration
                 )
                 self.log.info('Created role {}/{}'.format(account.account_name, role_name))
+            else:
+                try:
+                    if aws_roles[role_name]['MaxSessionDuration'] != max_session_duration:
+                        iam.update_role(
+                            RoleName=aws_roles[role_name]['RoleName'],
+                            MaxSessionDuration=max_session_duration
+                        )
+                        self.log.info('Adjusted MaxSessionDuration for role {} in account {} to {} seconds'.format(
+                            role_name,
+                            account.account_name,
+                            max_session_duration
+                        ))
+                except ClientError:
+                    self.log.exception('Unable to adjust MaxSessionDuration for role {} in account {}'.format(
+                        role_name,
+                        account.account_name
+                    ))
 
             aws_role_policies = [x['PolicyName'] for x in iam.list_attached_role_policies(
                 RoleName=role_name)['AttachedPolicies']
