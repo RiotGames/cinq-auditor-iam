@@ -8,11 +8,10 @@ from tempfile import mkdtemp
 from botocore.exceptions import ClientError
 from cloud_inquisitor import get_aws_session
 from cloud_inquisitor.config import dbconfig, ConfigOption
-from cloud_inquisitor.constants import NS_AUDITOR_IAM, AccountTypes
-from cloud_inquisitor.database import db
+from cloud_inquisitor.constants import NS_AUDITOR_IAM
 from cloud_inquisitor.log import auditlog
 from cloud_inquisitor.plugins import BaseAuditor
-from cloud_inquisitor.schema import Account
+from cloud_inquisitor.plugins.types.accounts import AWSAccount
 from cloud_inquisitor.wrappers import retry
 from git import Repo
 
@@ -52,10 +51,7 @@ class IAMAuditor(BaseAuditor):
         Returns:
             `None`
         """
-        accounts = db.Account.find(
-            Account.enabled == 1,
-            Account.account_type == AccountTypes.AWS
-        )
+        accounts = list(AWSAccount.get_all(include_disabled=False).values())
         self.manage_policies(accounts)
 
     def manage_policies(self, accounts):
